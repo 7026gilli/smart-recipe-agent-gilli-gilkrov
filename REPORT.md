@@ -1,5 +1,16 @@
 # Recipe Agent: Manual API Harness vs. Google GenAI SDK
 
+## Executive Summary / סיכום מסקנות מרכזי
+
+- **Correctness:** both implementations passed **12/12 assertions** (6 of them check state persisted across sessions), with 0 tool errors.
+- **Model calls:** equal per tool round (*tool rounds + 1*): 15 (API) vs 14 (SDK). The difference comes from the model's choices, not the harness.
+- **Tokens and latency:** API 23.0k input / 2.5k output / 118.5 s; SDK 18.2k input / 0.7k output / 10.8 s. These gaps are mostly the model (`flash` with thinking vs `flash-lite`), not the harness. Session 1, where both behaved alike, was nearly identical (12.8k vs 12.6k input). Cost was $0.00 on both; caching was 0% on both.
+- **Code size:** the API harness is 8 hand-written modules (731 lines; 943 with agent and CLI). The SDK needs 365 lines in total, **2.6× less**. The loop alone shrinks about 19×.
+- **What the SDK takes away:** per-call token visibility (it needed a private-API workaround), hooks and approval gates between tool calls, compaction (none; relies on the 1M window), explicit cache management, and control over the error text the model sees.
+- **What the SDK does better:** schemas generated from type hints, automatic argument conversion, and no loop code to get wrong.
+- **Testing:** all 8 harness modules have isolated offline unit tests, and the full suite (74 tests) runs without an API key.
+- **Recommendation:** ship the **SDK (Chat + AFC)** for this agent: short sessions, read-only tools, small prompts. Switch to the manual harness for long sessions (compaction), side-effecting tools that need approval, large cacheable prompts, or exact per-call cost accounting.
+
 Two implementations of the same recipe agent, both on Google Gemini (Google AI Studio, free tier):
 
 - **API** (`API/`): a hand-written harness over `client.models.generate_content`. Eight modules own the loop, tools, history, memory, context, compaction, caching and token accounting.
@@ -150,7 +161,7 @@ Where the SDK saves code: the loop (about 19× less), history (about 6×) and to
 
 ```bash
 .venv/bin/pip install -r requirements.txt              # google-genai
-.venv/bin/python -m unittest discover -s tests         # 32 offline tests, no API key needed
+.venv/bin/python -m unittest discover -s tests         # 74 offline tests (scenario tests plus per-component unit tests in `tests/test_harness_units.py`), no API key needed
 # GEMINI_API_KEY=... in .env
 .venv/bin/python -m API.main --scenario scenario.json --out results/api.json
 .venv/bin/python -m SDK.main --scenario scenario.json --out results/sdk.json --model gemini-3.5-flash-lite
